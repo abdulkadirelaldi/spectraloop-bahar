@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Ortam & sırlar
+.env
+
+# Çalışma zamanı çıktıları
+*.log
+akgys/
+screenshots/
+logs/
+
+# OS / editör
+.DS_Store
+.idea/
+.vscode/
