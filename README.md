@@ -1,107 +1,85 @@
-# Spectraloop Bahar — AKGYS Sesli Asistan & Arayüz
+# Spectraloop — Sesli Komut Fren Sistemi (Bas-Konuş)
 
-Hyperloop güvenlik simülasyon sistemi. Raspberry Pi üzerinde çalışan Flask/SocketIO
-arayüzü + Mac üzerinde çalışan offline sesli asistan (Whisper + Ollama + `say`).
+Bas-konuş (push-to-talk) mantığıyla **Türkçe** sesli komutları fren aktüatörlerine
+(test aşamasında MOSFET) çeviren kontrol sistemi. `S` tuşuna basılı tutulur, konuşulur,
+bırakılınca komut yazıya çevrilip Raspberry Pi üzerinden Arduino'ya iletilir.
 
 ## Mimari
 
 ```
-Mac (assistant.py)                         Raspberry Pi (app.py)
-┌───────────────────────────┐   SocketIO   ┌───────────────────────────┐
-│ Mikrofon → VAD → Whisper  │─────────────▶│ sim_trigger / acil_durdur │
-│ Intent (regex) / Ollama   │◀─────────────│ update (durum yayını)     │
-│ macOS say (TTS)           │  assistant_  │ /api/state  /healthz      │
-└───────────────────────────┘    state     └──────────┬────────────────┘
-                                                       │ render
-                                          operator.html / yolcu.html / robot.html
+MacBook (yer istasyonu)          Raspberry Pi 4            Arduino Uno
+ mikrofon + S tuşu     --TCP-->   TCP sunucu     --USB--> 4 MOSFET (D7-D10)  -->  ön / arka
+ Whisper (TR) + ayrıştır   WiFi   seri köprü      seri     aktif-HIGH sürme       fren valfleri
 ```
 
-Etkileşim durum makinesi: **IDLE → (uyandırma sözcüğü) → LISTEN (VAD) → THINK → SPEAK → IDLE**
+Komut ayrıştırma MacBook'ta yapılır; Pi sadece köprüdür; Arduino donanımı sürer.
 
-## Klasör Yapısı
+## Dosyalar
 
-```
-mac_assistant/
-  assistant.py      → Sesli asistan (durum makinesi, VAD, TTS)
-  intent.py         → Niyet/komut eşleştirme (saf, test edilebilir)
-  config.py         → Ortam değişkeni tabanlı yapılandırma
-  test_intent.py    → Birim testleri (ses/model bağımlılığı gerektirmez)
-  requirements.txt
+| Dosya | Cihaz | Görev |
+|---|---|---|
+| `mac_voice_client.py` | MacBook | Bas-konuş kaydı, `faster-whisper` ile Türkçe STT, komut ayrıştırma, TCP ile Pi'ye gönderim |
+| `pi_serial_bridge.py` | Raspberry Pi 4 | TCP'den komut alır, USB seri ile Arduino'ya iletir |
+| `arduino_brake_control/arduino_brake_control.ino` | Arduino Uno | Tek harf komutu (`A/F/R/X`) alıp 4 MOSFET'i sürer |
 
-pi_server/
-  app.py            → Flask + SocketIO sunucu (thread-güvenli, güvenli uç noktalar)
-  requirements.txt
-  templates/        → operator.html · yolcu.html · robot.html
-  static/           → spectra.svg (robot yüzü görseli — bkz. Notlar)
+## Komut haritası
 
-.env.example        → Tüm ayarların şablonu
-```
+| Söylenen | Komut | Kanal (MOSFET) |
+|---|---|---|
+| "spectra frenleri sık" | `ALL` (`A`) | 1·2·3·4 (hepsi) |
+| "ön freni sık" | `FRONT` (`F`) | 1·2 (D7·D8) |
+| "arka frenleri sık" | `REAR` (`R`) | 3·4 (D9·D10) |
+| "frenleri bırak" / "serbest" | `RELEASE` (`X`) | hepsi kapanır |
 
-## Öne Çıkan Özellikler
+## Donanım / pin haritası
 
-- **Gerçek dinleme:** Sabit 5 sn pencere yerine enerji tabanlı **VAD** — konuşma bitince otomatik kesilir. Başlangıçta ortam gürültüsü kalibre edilir.
-- **Uyandırma sözcüğü:** "Spectraloop / asistan / sistem". Uyandırma sonrası kısa bir konuşma penceresinde tekrar söylemeye gerek yoktur.
-- **Kritik komut güvenliği:** *Acil durdurma*, *tahliye*, *çoklu arıza* yürütülmeden önce **sesli onay** ister.
-- **Kalıcı ACİL DURDURMA:** Pi'de latching kilit — simülasyon döngüsü tarafından ezilmez, yalnızca "normal" komutu sıfırlar.
-- **Thread-güvenli durum:** Paylaşılan `state` RLock ile korunur.
-- **Konuşma hafızası:** Ollama çağrılarında çok turlu bağlam.
-- **Hızlı STT:** `faster-whisper` varsa otomatik kullanılır (CPU'da ~3-5x); yoksa `openai-whisper`.
-- **Güvenlik:** Env tabanlı sır yönetimi, token korumalı `/screenshot`, girdi doğrulama, denetim (audit) günlüğü.
-- **Nazik hata yönetimi:** LLM/STT hataları kullanıcıya ham hata olarak okunmaz.
+| MOSFET | Arduino pin | Fren |
+|---|---|---|
+| 1 | D7 | Ön sol |
+| 2 | D8 | Ön sağ |
+| 3 | D9 | Arka sol |
+| 4 | D10 | Arka sağ |
+
+MOSFET notları (N-kanal, low-side sürme):
+- **Aktif-HIGH:** gate HIGH = iletir = yük ON.
+- **Ortak GND şart:** Arduino GND + yük beslemesi GND'si birleşik olmalı.
+- Gate'e ~150 Ω seri direnç + gate–source arası **10k pull-down** (reset anında yanlış tetiklemeyi önler).
+- **Logic-level MOSFET** kullan (ör. IRLZ44N); IRF540 5V gate'te tam açılmaz.
+- Gerçek selenoid/valfe bağlarken yüke ters paralel **flyback diyot** (ör. 1N4007) şart.
 
 ## Kurulum
 
-Ayarları `.env` üzerinden verin:
+### 1. Arduino
+`arduino_brake_control/` klasörünü Arduino IDE ile aç, `arduino_brake_control.ino`'yu yükle (baud 115200).
+Seri Monitör'den `A` `F` `R` `X` yazarak kanalları tek tek doğrula.
 
+### 2. Raspberry Pi
 ```bash
-cp .env.example .env
-# .env dosyasını düzenleyin (özellikle AKGYS_PI_URL ve AKGYS_SCREENSHOT_TOKEN)
-set -a; source .env; set +a
+pip3 install pyserial
+ls /dev/ttyACM*     # Arduino portu (genelde ttyACM0)
+hostname -I         # Pi'nin IP'si (Mac'e lazım)
+python3 pi_serial_bridge.py
 ```
+Port farklıysa `pi_serial_bridge.py` içindeki `SERIAL_PORT`'u güncelle.
 
-### Pi
-
+### 3. MacBook
 ```bash
-cd pi_server
-pip3 install -r requirements.txt
-python3 app.py            # http://<pi-ip>:5001
+brew install portaudio
+pip3 install sounddevice numpy faster-whisper pynput
 ```
-
-### Mac
-
+- `mac_voice_client.py` içindeki `PI_HOST`'u Pi'nin IP'si yap.
+- macOS izni: Sistem Ayarları → Gizlilik ve Güvenlik → **Erişilebilirlik** ve **Girdi İzleme** altında Terminal'e izin ver (yoksa `S` tuşu algılanmaz).
+- İlk çalıştırmada Whisper modeli iner (~460 MB, bir kez). Sonrası offline.
 ```bash
-cd mac_assistant
-pip3 install -r requirements.txt
-brew install ollama && ollama pull qwen2.5:3b
-python3 assistant.py
+python3 mac_voice_client.py
 ```
+`S`'yi basılı tut → konuş → bırak. Çıkış: `ESC`.
 
-## Test
+## Güvenlik notu
 
-```bash
-cd mac_assistant
-python3 -m pytest -q        # veya: python3 test_intent.py
-```
+Sesli komut, STT gecikmesi (~1-2 sn) ve yanlış-anlama ihtimali nedeniyle asıl
+**acil-durdurma (E-stop) sisteminin yerine değil**, operatör kolaylığı olarak onun
+yanında kullanılmalıdır.
 
-## Sesli Komut Örnekleri
-
-| Söyleyin                              | Sonuç                                  |
-|---------------------------------------|----------------------------------------|
-| "Spectraloop"                         | Asistanı uyandırır                     |
-| "…acil durdur"                        | Onay ister → ACİL DURDURMA (kalıcı)    |
-| "…f1 BMS ısınması başlat"             | BMS senaryosu                          |
-| "…yolcuları tahliye et"               | Onay ister → tahliye senaryosu         |
-| "…risk durumu ne / hız kaç"           | Güncel durumu LLM ile özetler          |
-| "…normale al"                         | Tüm senaryoları/acili sıfırlar         |
-
-## Notlar / Sonraki Adımlar
-
-- **Offline:** `socket.io.min.js` artık `pi_server/static/`'e gömülü ve tüm
-  şablonlar yerel yolu kullanır — arayüz internet olmadan da çalışır.
-- **Robot yüzü:** `pi_server/static/spectra.svg` dahildir (durum
-  animasyonlarıyla uyumlu). İsterseniz kendi görselinizle değiştirin.
-- **Üretim:** `app.py` demo amaçlı Werkzeug sunucusu kullanır; üretimde
-  `gunicorn` + `eventlet` önerilir. `AKGYS_CORS`'u tek origin'e kısıtlayın.
-- **True barge-in (konuşurken kesme):** macOS'ta hoparlör sesi mikrofona
-  sızdığından yankı iptali (AEC) olmadan güvenilir değildir; bu sürüm TTS
-  sırasında mikrofonu susturur.
+---
+Spectraloop • TEKNOFEST Hyperloop
