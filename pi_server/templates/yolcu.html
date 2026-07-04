@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AKGYS Yolcu Ekranı</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{width:100%;height:100%;overflow:hidden;font-family:'Segoe UI',Arial,sans-serif;}
+#map{position:absolute;top:0;left:0;width:100%;height:100%;z-index:1;}
+
+/* ── HEADER ── */
+#header{
+  position:absolute;top:0;left:0;right:0;height:60px;z-index:200;
+  background:rgba(5,12,30,0.88);border-bottom:2px solid rgba(95,179,255,0.3);
+  backdrop-filter:blur(10px);display:flex;align-items:center;
+  justify-content:space-between;padding:0 20px;
+}
+.logo{font-size:17px;font-weight:700;letter-spacing:2px;color:#5fb3ff;}
+.logo span{color:#fff;font-weight:300;}
+#status-pill{
+  padding:5px 18px;border-radius:24px;font-size:12px;font-weight:700;
+  letter-spacing:1px;transition:all 0.7s;
+  background:#122a1a;color:#7fffa0;border:2px solid #2ecc71;
+}
+#saat{font-size:22px;font-weight:300;color:#aac8ff;letter-spacing:2px;}
+
+/* ── INFO PANEL (sağ) ── */
+#info-panel{
+  position:absolute;top:72px;right:12px;z-index:200;width:190px;
+  background:rgba(5,12,30,0.90);border:1px solid rgba(95,179,255,0.25);
+  border-radius:12px;backdrop-filter:blur(12px);padding:12px 14px;
+  display:flex;flex-direction:column;gap:8px;
+}
+.info-row{display:flex;flex-direction:column;gap:1px;}
+.info-label{font-size:9px;color:#4a7aaa;letter-spacing:1.5px;text-transform:uppercase;}
+.info-value{font-size:20px;font-weight:700;color:#fff;}
+.info-unit{font-size:10px;color:#7abaff;}
+.info-sub{font-size:13px;font-weight:600;color:#fff;}
+.info-divider{height:1px;background:rgba(95,179,255,0.15);}
+
+/* ── NAV BUTTON ── */
+#nav-btn{
+  position:absolute;bottom:140px;right:12px;z-index:300;
+}
+#nav-btn a{
+  display:block;padding:8px 16px;
+  background:rgba(5,12,30,0.92);border:1px solid rgba(95,179,255,0.4);
+  border-radius:20px;color:#5fb3ff;font-size:10px;font-weight:700;
+  letter-spacing:1px;text-decoration:none;backdrop-filter:blur(8px);
+}
+
+/* ── SCREENSHOT BUTTON ── */
+#ss-btn-yolcu{
+  position:absolute;bottom:132px;left:12px;z-index:300;
+  padding:7px 14px;background:rgba(4,9,22,0.92);
+  border:1px solid rgba(95,179,255,0.35);border-radius:18px;
+  color:#7ad4ff;font-size:10px;font-weight:700;letter-spacing:1px;
+  cursor:pointer;transition:all 0.22s;display:flex;align-items:center;gap:7px;
+  backdrop-filter:blur(8px);
+}
+#ss-btn-yolcu:hover{background:rgba(10,40,90,0.95);border-color:#5fb3ff;box-shadow:0 0 14px rgba(95,179,255,0.3);}
+#ss-btn-yolcu.saving{color:#ffd97d;border-color:#f39c12;}
+#ss-btn-yolcu.saved {color:#7fffa0;border-color:#2ecc71;box-shadow:0 0 12px rgba(46,204,113,0.3);}
+#ss-btn-yolcu.error {color:#ff6b6b;border-color:#e74c3c;}
+#ss-y-count{
+  display:inline-block;min-width:16px;height:16px;line-height:16px;
+  background:rgba(95,179,255,0.15);border-radius:8px;
+  font-size:9px;text-align:center;padding:0 4px;
+}
+
+/* ── SIMULATION BUTTON BAR ── */
+#sim-bar{
+  position:absolute;bottom:68px;left:0;right:0;height:58px;z-index:200;
+  background:rgba(4,9,22,0.94);border-top:1px solid rgba(95,179,255,0.15);
+  border-bottom:1px solid rgba(95,179,255,0.1);
+  display:flex;align-items:center;padding:0 12px;gap:8px;
+  overflow-x:auto;overflow-y:hidden;
+}
+#sim-bar::-webkit-scrollbar{height:3px;}
+#sim-bar::-webkit-scrollbar-track{background:transparent;}
+#sim-bar::-webkit-scrollbar-thumb{background:rgba(95,179,255,0.2);border-radius:2px;}
+.sim-label{font-size:9px;color:#3a5a70;letter-spacing:1.5px;text-transform:uppercase;white-space:nowrap;flex-shrink:0;margin-right:4px;}
+.sim-btn{
+  flex-shrink:0;padding:6px 14px;border-radius:16px;
+  font-size:10px;font-weight:700;letter-spacing:0.5px;
+  border:1px solid;cursor:pointer;transition:all 0.2s;white-space:nowrap;
+  background:transparent;
+}
+.sim-btn:hover{filter:brightness(1.3);}
+.sim-btn.s-normal{color:#7fffa0;border-color:#2ecc71;}
+.sim-btn.s-normal:hover{background:rgba(46,204,113,0.15);}
+.sim-btn.s-basinc{color:#ffd97d;border-color:#f39c12;}
+.sim-btn.s-basinc:hover{background:rgba(243,156,18,0.15);}
+.sim-btn.s-oksijen{color:#7ad4ff;border-color:#5fb3ff;}
+.sim-btn.s-oksijen:hover{background:rgba(95,179,255,0.15);}
+.sim-btn.s-sicaklik{color:#ffaa66;border-color:#e67e22;}
+.sim-btn.s-sicaklik:hover{background:rgba(230,126,34,0.15);}
+.sim-btn.s-gaz{color:#c77dff;border-color:#9b59b6;}
+.sim-btn.s-gaz:hover{background:rgba(155,89,182,0.15);}
+.sim-btn.s-hiz{color:#ffd97d;border-color:#f39c12;}
+.sim-btn.s-hiz:hover{background:rgba(243,156,18,0.15);}
+.sim-btn.s-acil{color:#ff8fa0;border-color:#e74c3c;}
+.sim-btn.s-acil:hover{background:rgba(231,76,60,0.12);}
+.sim-btn.s-tahliye{color:#c77dff;border-color:#9b59b6;}
+.sim-btn.s-tahliye:hover{background:rgba(155,89,182,0.15);}
+.sim-btn.s-deprem{color:#ffd97d;border-color:#d4ac0d;}
+.sim-btn.s-deprem:hover{background:rgba(212,172,13,0.15);}
+.sim-btn.s-iletisim{color:#a0a8c0;border-color:#5a6280;}
+.sim-btn.s-iletisim:hover{background:rgba(90,98,128,0.2);}
+
+/* ── STATION BAR (en altta) ── */
+#bottom-bar{
+  position:absolute;bottom:0;left:0;right:0;height:68px;z-index:200;
+  background:rgba(5,12,30,0.92);border-top:1px solid rgba(95,179,255,0.2);
+  backdrop-filter:blur(10px);display:flex;align-items:center;padding:0 24px;
+}
+#station-track{flex:1;position:relative;height:38px;display:flex;align-items:center;}
+.st-line{position:absolute;top:50%;left:0;right:0;height:3px;background:rgba(95,179,255,0.15);border-radius:2px;transform:translateY(-50%);}
+.st-progress{position:absolute;top:50%;left:0;height:3px;background:linear-gradient(90deg,#2ecc71,#5fb3ff);border-radius:2px;transform:translateY(-50%);transition:width 0.4s ease;}
+.st-wrap{position:absolute;top:50%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;}
+.st-dot{width:11px;height:11px;border-radius:50%;border:2px solid #2a4a6a;background:#0a1428;transition:all 0.5s;}
+.st-dot.passed{background:#2ecc71;border-color:#2ecc71;}
+.st-dot.current{background:#5fb3ff;border-color:#5fb3ff;box-shadow:0 0 8px #5fb3ff;}
+.st-name{font-size:8px;color:#4a7aaa;white-space:nowrap;margin-top:4px;}
+.st-wrap.passed .st-name{color:#2ecc71;}
+.st-wrap.current .st-name{color:#5fb3ff;}
+
+/* ══════════════════════════════════════════
+   YOLCU UYARI KARTI v2 — gelişmiş tasarım
+   ══════════════════════════════════════════ */
+#alert-card{
+  position:absolute;
+  top:50%;left:50%;
+  transform:translate(-50%,-50%);
+  z-index:500;
+  width:min(780px, calc(100vw - 48px));
+  background:rgba(3,7,18,0.96);
+  border:1px solid var(--ac,#f39c12);
+  border-radius:22px;overflow:hidden;
+  display:none;flex-direction:column;
+  backdrop-filter:blur(32px) saturate(1.7);
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,0.05),
+    0 32px 80px rgba(0,0,0,0.85),
+    0 0 80px var(--ac-glow,rgba(243,156,18,0.2));
+}
+#alert-card.show{
+  display:flex;
+  animation:ac-in 0.45s cubic-bezier(0.16,1,0.3,1) both,
+            ac-pulse 2.5s ease-in-out 0.5s infinite;
+}
+@keyframes ac-in{
+  from{opacity:0;transform:translate(-50%,-50%) scale(0.92);}
+  to  {opacity:1;transform:translate(-50%,-50%) scale(1);}
+}
+@keyframes ac-pulse{
+  0%,100%{box-shadow:0 0 0 1px rgba(255,255,255,0.04),0 28px 70px rgba(0,0,0,0.75),0 0 40px var(--ac-glow);}
+  50%    {box-shadow:0 0 0 1px rgba(255,255,255,0.07),0 28px 70px rgba(0,0,0,0.75),0 0 80px var(--ac-glow);}
+}
+/* İzgara arka plan */
+#alert-card::before{
+  content:'';position:absolute;inset:0;z-index:0;pointer-events:none;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.022) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(255,255,255,0.022) 1px,transparent 1px);
+  background-size:22px 22px;
+}
+/* Tarama çizgisi süpürme */
+#alert-card::after{
+  content:'';position:absolute;inset:0;z-index:0;pointer-events:none;
+  background:linear-gradient(
+    to bottom,
+    transparent 0%,
+    rgba(255,255,255,0.015) 50%,
+    transparent 100%
+  );
+  background-size:100% 6px;
+  animation:scanlines 4s linear infinite;
+}
+@keyframes scanlines{from{background-position:0 0}to{background-position:0 100px}}
+
+/* Sol renk şeridi */
+#alert-sev-bar{
+  position:absolute;left:0;top:0;bottom:0;width:4px;z-index:5;
+  background:var(--ac,#f39c12);
+  box-shadow:0 0 14px var(--ac,#f39c12);
+}
+
+/* İçerik sarmalayıcı */
+#alert-inner{position:relative;z-index:1;}
+
+/* Üst başlık şeridi */
+#alert-header{
+  display:flex;align-items:center;gap:20px;
+  padding:26px 26px 20px 28px;
+  border-bottom:1px solid rgba(255,255,255,0.07);
+}
+
+/* Büyük ikon + yüzer hale */
+#alert-icon-ring{
+  position:relative;width:84px;height:84px;border-radius:50%;flex-shrink:0;
+  background:rgba(5,12,30,0.85);
+  border:2px solid var(--ac,#f39c12);
+  display:flex;align-items:center;justify-content:center;
+  overflow:visible;
+  box-shadow:0 0 20px var(--ac-glow,rgba(243,156,18,0.2));
+}
+/* Logo img */
+#alert-logo-img{
+  width:56px;height:56px;object-fit:contain;
+  filter:drop-shadow(0 0 6px var(--ac,#f39c12)) brightness(1.15);
+}
+/* Senaryo emoji badge sağ alt */
+#alert-icon{
+  position:absolute;bottom:-5px;right:-7px;
+  background:rgba(3,7,18,0.95);
+  border:1.5px solid var(--ac,#f39c12);
+  border-radius:50%;width:28px;height:28px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:14px;
+}
+#alert-icon-ring::before,#alert-icon-ring::after{
+  content:'';position:absolute;border-radius:50%;
+  border:1.5px solid var(--ac,#f39c12);
+  top:50%;left:50%;transform:translate(-50%,-50%);
+  animation:ac-ring 2.4s ease-out infinite;
+}
+#alert-icon-ring::after{animation-delay:1.2s;}
+@keyframes ac-ring{
+  0%  {width:84px; height:84px; opacity:0.8;}
+  100%{width:160px;height:160px;opacity:0;}
+}
+
+/* Badge + başlık */
+#alert-title-group{flex:1;min-width:0;}
+#alert-badge{
+  display:inline-block;margin-bottom:9px;
+  font-size:10px;font-weight:800;letter-spacing:2px;text-transform:uppercase;
+  color:var(--ac,#f39c12);border:1px solid var(--ac,#f39c12);
+  background:var(--ac-icon-bg);border-radius:4px;padding:3px 11px;
+}
+#alert-title{font-size:24px;font-weight:700;color:#fff;line-height:1.2;}
+
+/* Dairesel geri sayım */
+#ac-cdown-wrap{position:relative;width:64px;height:64px;flex-shrink:0;}
+#ac-cdown-svg{transform:rotate(-90deg);}
+#ac-cdown-arc{
+  stroke:var(--ac,#f39c12);stroke-linecap:round;
+  stroke-dasharray:131.9;stroke-dashoffset:0;
+  transition:stroke-dashoffset 0.12s linear;
+  filter:drop-shadow(0 0 4px var(--ac,#f39c12));
+}
+#ac-cdown-bg{stroke:rgba(255,255,255,0.08);}
+#ac-cdown-num{
+  position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  font-size:16px;font-weight:700;color:var(--ac,#f39c12);letter-spacing:-0.5px;
+}
+
+/* Kapat */
+#alert-dismiss{
+  position:absolute;top:14px;right:14px;z-index:10;
+  width:28px;height:28px;border-radius:50%;cursor:pointer;
+  background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);
+  color:rgba(255,255,255,0.45);font-size:14px;
+  display:flex;align-items:center;justify-content:center;transition:all 0.2s;
+}
+#alert-dismiss:hover{background:rgba(255,255,255,0.18);color:#fff;}
+
+/* Mesaj */
+#alert-msg-area{padding:18px 28px 12px;}
+#alert-msg{font-size:15px;line-height:1.72;color:rgba(255,255,255,0.82);}
+
+/* Sensör veri satırları */
+#alert-sensors{
+  display:none;flex-wrap:wrap;gap:8px;
+  padding:0 28px 14px;
+}
+.alert-sensor-chip{
+  font-size:11px;font-weight:700;padding:5px 13px;
+  border-radius:7px;letter-spacing:0.5px;
+  background:rgba(255,255,255,0.06);
+  border:1px solid rgba(255,255,255,0.12);
+  color:rgba(255,255,255,0.7);
+}
+.alert-sensor-chip.warn{border-color:var(--ac);color:var(--ac);background:var(--ac-icon-bg);}
+
+/* Aksiyon banner */
+#alert-action{
+  margin:0 22px 18px;
+  padding:13px 20px;border-radius:10px;
+  border:1px solid var(--ac);background:var(--ac-icon-bg);
+  font-size:12px;font-weight:800;letter-spacing:1.5px;
+  color:var(--ac);text-align:center;display:none;
+  animation:ac-action-pulse 1.5s ease-in-out infinite;
+}
+@keyframes ac-action-pulse{0%,100%{opacity:1}50%{opacity:0.75}}
+
+/* İnce progress bar (en alt) */
+#ac-prog-bg{height:3px;background:rgba(255,255,255,0.06);}
+#ac-prog-fill{
+  height:100%;width:100%;
+  background:var(--ac,#f39c12);
+  box-shadow:0 0 8px var(--ac);
+  transition:width 0.12s linear;
+}
+
+/* ── Tren animasyon CSS ── */
+@keyframes hl-spd{from{opacity:0.75;transform:translateX(0)}to{opacity:0;transform:translateX(-10px)}}
+@keyframes hl-nglow{0%,100%{opacity:0.6}50%{opacity:1}}
+@keyframes hl-mag{0%,100%{opacity:0.2}50%{opacity:0.5}}
+.hl-sl1{animation:hl-spd 0.45s ease-out infinite;}
+.hl-sl2{animation:hl-spd 0.45s ease-out 0.09s infinite;}
+.hl-sl3{animation:hl-spd 0.45s ease-out 0.18s infinite;}
+.hl-sl4{animation:hl-spd 0.45s ease-out 0.27s infinite;}
+.hl-nglow{animation:hl-nglow 0.75s ease-in-out infinite;}
+.hl-mag{animation:hl-mag 1s ease-in-out infinite;}
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<!-- HEADER -->
+<div id="header">
+  <div class="logo">AKGYS <span>HYPERLOOP</span></div>
+  <div id="status-pill">NORMAL SEYRÜSEFER</div>
+  <div id="saat">--:--:--</div>
+</div>
+
+<!-- INFO PANEL -->
+<div id="info-panel">
+  <div class="info-row">
+    <div class="info-label">Güncel Hız</div>
+    <div><span class="info-value" id="hiz-val">—</span> <span class="info-unit">km/h</span></div>
+  </div>
+  <div class="info-divider"></div>
+  <div class="info-row">
+    <div class="info-label">Tahmini Varış</div>
+    <div><span class="info-value" id="eta-val">—</span> <span class="info-unit">dk</span></div>
+  </div>
+  <div class="info-divider"></div>
+  <div class="info-row">
+    <div class="info-label">Sonraki İstasyon</div>
+    <div class="info-sub" id="next-st">—</div>
+  </div>
+  <div class="info-divider"></div>
+  <div class="info-row">
+    <div class="info-label">Kat Edilen Mesafe</div>
+    <div><span class="info-value" id="km-val">0</span> <span class="info-unit">km</span></div>
+  </div>
+</div>
+
+<!-- NAV -->
+<div id="nav-btn"><a href="/operator">OPERATÖR PANELİ ›</a></div>
+
+<!-- YOLCU UYARI KARTI v2 -->
+<div id="alert-card">
+  <div id="alert-sev-bar"></div>
+  <button id="alert-dismiss" onclick="dismissAlert()">✕</button>
+  <div id="alert-inner">
+
+    <!-- Üst: ikon + başlık + geri sayım -->
+    <div id="alert-header">
+      <div id="alert-icon-ring">
+        <img id="alert-logo-img" src="/static/spectraloop.png" alt="Spectraloop">
+        <span id="alert-icon">⚠</span>
+      </div>
+      <div id="alert-title-group">
+        <div id="alert-badge">AKGYS — SİSTEM BİLDİRİMİ</div>
+        <div id="alert-title">Bilgilendirme</div>
+      </div>
+      <div id="ac-cdown-wrap">
+        <svg id="ac-cdown-svg" width="64" height="64" viewBox="0 0 54 54">
+          <circle id="ac-cdown-bg" cx="27" cy="27" r="21" fill="none" stroke-width="3"/>
+          <circle id="ac-cdown-arc" cx="27" cy="27" r="21" fill="none" stroke-width="3"/>
+        </svg>
+        <div id="ac-cdown-num">—</div>
+      </div>
+    </div>
+
+    <!-- Mesaj -->
+    <div id="alert-msg-area">
+      <div id="alert-msg">Sistem normal çalışıyor.</div>
+    </div>
+
+    <!-- Sensör çipleri (F1/F2/Z1 için) -->
+    <div id="alert-sensors"></div>
+
+    <!-- Aksiyon talimatı -->
+    <div id="alert-action">AKSİYON</div>
+
+    <!-- İnce progress -->
+    <div id="ac-prog-bg"><div id="ac-prog-fill"></div></div>
+  </div>
+</div>
+
+<!-- SCREENSHOT BUTTON -->
+<button id="ss-btn-yolcu" onclick="takeScreenshotY()">
+  <span id="ss-y-icon">📸</span>
+  <span id="ss-y-txt">Kaydet</span>
+  <span id="ss-y-count">0</span>
+</button>
+
+<!-- SIMULATION BUTTON BAR -->
+<div id="sim-bar">
+  <span class="sim-label">SİMÜLASYON:</span>
+  <button class="sim-btn s-normal"   onclick="simulate('normal')">✓ Normal</button>
+  <button class="sim-btn s-sicaklik" onclick="simulate('bms')">🌡 F1 — Hücre Isınma</button>
+  <button class="sim-btn s-hiz"      onclick="simulate('levitasyon')">⬇ F2 — Lev. Sapma</button>
+  <button class="sim-btn s-iletisim" onclick="simulate('navigasyon')">📡 F3 — Nav. Arızası</button>
+  <button class="sim-btn s-gaz"      onclick="simulate('z1')">🔬 Z1 — Çoklu Arıza</button>
+  <button class="sim-btn s-basinc"   onclick="simulate('basinc')">⚠ Basınç Düşüşü</button>
+  <button class="sim-btn s-oksijen"  onclick="simulate('oksijen')">💨 Oksijen Maskesi</button>
+  <button class="sim-btn s-acil"     onclick="simulate('acildurak')">⬛ Acil Duruş</button>
+  <button class="sim-btn s-deprem"   onclick="simulate('sarsinti')">〜 Sarsıntı</button>
+  <button class="sim-btn s-tahliye"  onclick="simulate('tahliye')">🚨 Tahliye</button>
+</div>
+
+<!-- STATION BAR -->
+<div id="bottom-bar">
+  <div id="station-track">
+    <div class="st-line"></div>
+    <div class="st-progress" id="st-progress"></div>
+  </div>
+</div>
+
+<script>
+const STATIONS=[
+  {name:"İstanbul",lat:41.010,lng:28.970},
+  {name:"Ankara",  lat:39.925,lng:32.854},
+  {name:"Sivas",   lat:39.748,lng:37.018},
+  {name:"Erzurum", lat:39.908,lng:41.276},
+  {name:"Kars",    lat:40.608,lng:43.097},
+];
+const TOTAL_KM=1900;
+
+/* Leaflet */
+const map=L.map('map',{
+  center:[39.9,35.5],zoom:6,
+  zoomControl:false,attributionControl:false,
+  dragging:false,scrollWheelZoom:false,doubleClickZoom:false,touchZoom:false,
+});
+L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',{
+  maxZoom:19,subdomains:'abcd'
+}).addTo(map);
+
+const ts=document.createElement('style');
+ts.textContent=`.lf-tt{background:rgba(5,12,30,0.9)!important;border:1px solid rgba(95,179,255,0.4)!important;color:#5fb3ff!important;font-size:11px!important;font-weight:700!important;padding:3px 8px!important;border-radius:5px!important;box-shadow:none!important;white-space:nowrap!important;}.lf-tt::before{display:none!important;}`;
+document.head.appendChild(ts);
+
+STATIONS.forEach(st=>{
+  L.circleMarker([st.lat,st.lng],{radius:5,fillColor:'#0a1428',color:'#3a6a9a',weight:2,fillOpacity:1})
+   .bindTooltip(st.name,{permanent:true,direction:'top',offset:[0,-10],className:'lf-tt'})
+   .addTo(map);
+});
+
+const routeCoords=STATIONS.map(s=>[s.lat,s.lng]);
+const passedLine=L.polyline([],{color:'#2ecc71',weight:4,opacity:0.9}).addTo(map);
+const upcomingLine=L.polyline(routeCoords,{color:'#5fb3ff',weight:3,opacity:0.6,dashArray:'8,6'}).addTo(map);
+
+/* ── Hyperloop tren ikonu — boyut YARISINA düşürüldü ── */
+function makeTrainIcon(bearing){
+  // SVG viewBox 0 0 160 50 → display width=80, height=25 (yarısı)
+  const svg=`<svg width="80" height="25" viewBox="0 0 160 50" xmlns="http://www.w3.org/2000/svg">
+    <rect x="0"  y="21" width="24" height="1.8" rx="0.9" fill="#5fb3ff" class="hl-sl1"/>
+    <rect x="4"  y="26" width="18" height="1.4" rx="0.7" fill="#5fb3ff" class="hl-sl2"/>
+    <rect x="0"  y="16" width="20" height="1.2" rx="0.6" fill="#5fb3ff" class="hl-sl3"/>
+    <rect x="6"  y="31" width="15" height="1.2" rx="0.6" fill="#5fb3ff" class="hl-sl4"/>
+    <ellipse cx="93" cy="46" rx="60" ry="4.5" fill="#5fb3ff" class="hl-mag"/>
+    <rect x="30" y="42" width="126" height="2" rx="1" fill="#5fb3ff" opacity="0.5"/>
+    <path d="M33 12 L26 19 L26 31 L33 38 Z" fill="#8aaabb"/>
+    <rect x="33" y="12" width="108" height="26" rx="3" fill="#9ab8c8"/>
+    <rect x="33" y="12" width="108" height="13" rx="3" fill="#ccdde9"/>
+    <path d="M141 12 C151 12 159 18 160 25 C159 32 151 38 141 38 Z" fill="#a8c0d0"/>
+    <rect x="26" y="21.5" width="134" height="6" fill="#1a4e8a" opacity="0.65"/>
+    <rect x="41"  y="14" width="15" height="9" rx="2.5" fill="#081828" opacity="0.82"/>
+    <rect x="61"  y="14" width="15" height="9" rx="2.5" fill="#081828" opacity="0.82"/>
+    <rect x="81"  y="14" width="15" height="9" rx="2.5" fill="#081828" opacity="0.82"/>
+    <rect x="101" y="14" width="15" height="9" rx="2.5" fill="#081828" opacity="0.82"/>
+    <rect x="121" y="14" width="13" height="9" rx="2.5" fill="#081828" opacity="0.65"/>
+    <rect x="42"  y="15" width="6" height="2.5" rx="1" fill="#7ad4ff" opacity="0.55"/>
+    <rect x="62"  y="15" width="6" height="2.5" rx="1" fill="#7ad4ff" opacity="0.55"/>
+    <rect x="82"  y="15" width="6" height="2.5" rx="1" fill="#7ad4ff" opacity="0.55"/>
+    <rect x="102" y="15" width="6" height="2.5" rx="1" fill="#7ad4ff" opacity="0.55"/>
+    <line x1="33" y1="13.5" x2="141" y2="13.5" stroke="#e8f4ff" stroke-width="1" opacity="0.35"/>
+    <rect x="33" y="36.5" width="108" height="2" rx="1" fill="#6a8898" opacity="0.7"/>
+    <circle cx="157" cy="25" r="5" fill="#5fb3ff" class="hl-nglow" opacity="0.7"/>
+    <circle cx="157" cy="25" r="2.5" fill="#ffffff" opacity="0.95"/>
+  </svg>`;
+  return L.divIcon({
+    html:`<div style="transform:rotate(${bearing}deg);transform-origin:46px 12px;">${svg}</div>`,
+    iconSize:[80,25],iconAnchor:[46,12],className:''
+  });
+}
+
+function calcBearing(la1,lo1,la2,lo2){
+  const R=Math.PI/180;
+  const dL=(lo2-lo1)*R,l1=la1*R,l2=la2*R;
+  const y=Math.sin(dL)*Math.cos(l2);
+  const x=Math.cos(l1)*Math.sin(l2)-Math.sin(l1)*Math.cos(l2)*Math.cos(dL);
+  return(Math.atan2(y,x)*180/Math.PI+360)%360;
+}
+function lerp(a,b,t){return[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t];}
+
+const trainMarker=L.marker([STATIONS[0].lat,STATIONS[0].lng],{icon:makeTrainIcon(90),zIndexOffset:1000}).addTo(map);
+
+const track=document.getElementById('station-track');
+STATIONS.forEach((st,i)=>{
+  const pct=(i/(STATIONS.length-1))*100;
+  const w=document.createElement('div');
+  w.className='st-wrap';w.id=`sw${i}`;w.style.left=pct+'%';
+  w.innerHTML=`<div class="st-dot" id="sd${i}"></div><div class="st-name">${st.name}</div>`;
+  track.appendChild(w);
+});
+
+let currentPos=0,targetPos=0;
+
+function getInfo(pos){
+  const n=STATIONS.length-1;
+  const seg=Math.min(Math.floor(pos*n),n-1);
+  const t=(pos*n)-seg;
+  return{seg,latlng:lerp([STATIONS[seg].lat,STATIONS[seg].lng],[STATIONS[seg+1].lat,STATIONS[seg+1].lng],t)};
+}
+
+function updateVisuals(pos){
+  const{seg,latlng}=getInfo(pos);
+  const a=STATIONS[seg],b=STATIONS[seg+1];
+  trainMarker.setLatLng(latlng);
+  trainMarker.setIcon(makeTrainIcon(calcBearing(a.lat,a.lng,b.lat,b.lng)-90));
+  const pc=[];
+  for(let i=0;i<=seg;i++) pc.push([STATIONS[i].lat,STATIONS[i].lng]);
+  pc.push(latlng);
+  passedLine.setLatLngs(pc);
+  const uc=[latlng];
+  for(let i=seg+1;i<STATIONS.length;i++) uc.push([STATIONS[i].lat,STATIONS[i].lng]);
+  upcomingLine.setLatLngs(uc);
+  document.getElementById('st-progress').style.width=(pos*100)+'%';
+  document.getElementById('km-val').textContent=Math.round(pos*TOTAL_KM);
+  STATIONS.forEach((_,i)=>{
+    const sp=i/(STATIONS.length-1);
+    const cls=sp<pos-0.02?'passed':(Math.abs(sp-pos)<0.15?'current':'');
+    document.getElementById(`sd${i}`).className='st-dot '+cls;
+    document.getElementById(`sw${i}`).className='st-wrap '+cls;
+  });
+}
+
+(function loop(){
+  const d=targetPos-currentPos;
+  if(Math.abs(d)>0.00001){currentPos+=d*0.25;updateVisuals(currentPos);}
+  requestAnimationFrame(loop);
+})();
+
+setInterval(()=>{
+  const n=new Date();
+  document.getElementById('saat').textContent=
+    String(n.getHours()).padStart(2,'0')+':'+String(n.getMinutes()).padStart(2,'0')+':'+String(n.getSeconds()).padStart(2,'0');
+},1000);
+
+/* ──────────────────────────────────────────────
+   SİMÜLASYON SENARYOLARI
+   Yolcuya gösterilecek bildirimler — panik yok
+   ────────────────────────────────────────────── */
+// ─────────────────────────────────────────────────────────────────────────────
+// SİMÜLASYON SENARYOLARI
+// Kaynak: AKGYS TPÇK Raporu — F1/F2/F3/Z1 arıza modları + ek güvenlik durumları
+// Tasarım ilkesi: yolcuyu bilgilendir, panik yaratma, sisteme güveni pekiştir
+// ─────────────────────────────────────────────────────────────────────────────
+const SCENARIOS = {
+
+  // ── Normal ──────────────────────────────────────────────────────────────────
+  normal: { dismiss: true },
+
+  // ── F1: Tek hücre termal anomali (BMS Hücresi #7 → 52°C, Risk 41/100) ──────
+  bms: {
+    border: '#e67e22', iconBg:'rgba(230,126,34,0.12)',
+    icon:'🌡', badge:'ARIZA F1 — TERMAL ANOMALİ',
+    title:'Batarya Soğutma Sistemi Devrede',
+    msg:'Enerji yönetim sistemimiz Hücre #7\'de normalin üzerinde bir sıcaklık (52°C) tespit etti ve aktif soğutma devreye girdi. Güzergahınız sorunsuz devam ediyor; hız otomatik optimize edilmektedir. Herhangi bir işlem yapmanıza gerek yoktur.',
+    sensors:[
+      {label:'BMS #7', val:'52 °C', warn:true},
+      {label:'Risk',   val:'41/100', warn:true},
+      {label:'Soğutma',val:'AKTİF', warn:false},
+    ],
+    action:null, dur:11000,
+  },
+
+  // ── F2: Manyetik kaldırma sapması (Dikey sapma 2.8 mm, titreşim +%340) ──────
+  levitasyon: {
+    border:'#d4ac0d', iconBg:'rgba(212,172,13,0.12)',
+    icon:'〜', badge:'ARIZA F2 — LEVİTASYON SAPMASI',
+    title:'Seyahat Konforu Ayarlanıyor',
+    msg:'Manyetik kaldırma sisteminde 2.8 mm\'lik dikey bir sapma algılandı. Kaldırma kontrol algoritması hızı %40 düşürerek yeniden dengeleme başlattı. Kısa süreli bir titreşim hissedebilirsiniz — bu normaldir.',
+    sensors:[
+      {label:'IMU Sapma', val:'2.8 mm', warn:true},
+      {label:'Titreşim',  val:'+%340', warn:true},
+      {label:'Risk',      val:'74/100', warn:true},
+      {label:'Hız',       val:'↓%40', warn:false},
+    ],
+    action:'EMNİYET KEMERİNİZİN KILIDI KAPALI OLDUĞUNDAN EMİN OLUN',
+    dur:12000,
+  },
+
+  // ── F3: Navigasyon sistemi arızası (Enkoder çevrimdışı → Ölü hesaplama modu) ─
+  navigasyon: {
+    border:'#7a9ab8', iconBg:'rgba(90,120,150,0.15)',
+    icon:'📡', badge:'ARIZA F3 — NAVİGASYON SİSTEMİ',
+    title:'Konum Sistemi Yedekleme Modunda',
+    msg:'Birincil enkoder sensörü geçici olarak çevrimdışı duruma geçti. AKGYS ölü hesaplama (dead-reckoning) moduna otomatik geçiş yaptı; güzergahınız güvenle devam ediyor. Hızımız bir süre için kademeli olarak düşecektir.',
+    sensors:[
+      {label:'Enkoder',   val:'ÇEVRIMDIŞI', warn:true},
+      {label:'Yedek Mod', val:'AKTİF', warn:false},
+      {label:'Hız',       val:'↓%50', warn:false},
+    ],
+    action:null, dur:10000,
+  },
+
+  // ── Z1: Çoklu arıza (BMS 57°C + Gaz 620 ppm + IMU 3.6 mm → Risk 89/100) ────
+  z1: {
+    border:'#e74c3c', iconBg:'rgba(231,76,60,0.12)',
+    icon:'⚠', badge:'Z1 — ÇOKLU ARIZA / ACİL PROTOKOL',
+    title:'DURUYORUZ — GÜVENDESİNİZ',
+    msg:'Güvenlik sistemimiz eş zamanlı olarak birden fazla sensörden kritik uyarı aldı ve tam durdurma protokolü başlatıldı. Kapsülümüz 5 saniye içinde tam duruşa geçecek. Emniyet kemerinizi bağlı tutun, yerinizde kalın. Ekibimiz size ulaşmak için yola çıktı.',
+    sensors:[
+      {label:'BMS',    val:'57 °C',   warn:true},
+      {label:'Gaz',    val:'620 ppm', warn:true},
+      {label:'IMU',    val:'3.6 mm',  warn:true},
+      {label:'Risk',   val:'89/100',  warn:true},
+      {label:'Yanıt',  val:'0.5 s',   warn:false},
+    ],
+    action:'EMNİYET KEMERİNİZİ BAĞLI TUTUN — YERİNİZDEN KALKMAYINIZ',
+    dur:20000,
+  },
+
+  // ── Basınç Düşüşü ────────────────────────────────────────────────────────────
+  basinc: {
+    border:'#5fb3ff', iconBg:'rgba(95,179,255,0.12)',
+    icon:'🔵', badge:'KABIN BASINCI — UYARI',
+    title:'Kabin Basıncı Dengeleniyor',
+    msg:'Kabin içi basınçta küçük bir dalgalanma algılandı. Otomatik basınç dengeleme sistemi devreye girdi. Kulaklarınızda hafif bir his oluşabilir — bu geçicidir. Herhangi bir işlem yapmanıza gerek yoktur.',
+    sensors:[
+      {label:'Basınç', val:'↓ Düşük', warn:true},
+      {label:'Sistem', val:'Dengeliyor', warn:false},
+    ],
+    action:null, dur:10000,
+  },
+
+  // ── Oksijen Maskesi ──────────────────────────────────────────────────────────
+  oksijen: {
+    border:'#5fb3ff', iconBg:'rgba(95,179,255,0.15)',
+    icon:'💨', badge:'HAVALANDIRMA SİSTEMİ — BAKIM MODU',
+    title:'Lütfen Oksijen Maskenizi Takın',
+    msg:'Kabin havalandırma sistemi bakım moduna geçti. Güvenliğiniz için koltuğunuzun üstündeki paneli aşağı çekerek oksijen maskenizi yüzünüze takınız. Derin ve sakin nefes alınız. Ekibimiz sorunu çözmekte, kısa süre içinde normal havalandırmaya dönülecektir.',
+    sensors:null,
+    action:'TAVAN PANELİNİ AŞAĞI ÇEKİN — MASKEYİ YÜZÜNÜZE TAKIN',
+    dur:15000,
+  },
+
+  // ── Acil Duruş ───────────────────────────────────────────────────────────────
+  acildurak: {
+    border:'#e74c3c', iconBg:'rgba(231,76,60,0.10)',
+    icon:'⬛', badge:'GÜVENLİK PROTOKOLÜ — ACİL DURUŞ',
+    title:'DURUYORUZ — GÜVENDESİNİZ',
+    msg:'Güvenlik protokolü gereği kapsülümüz kontrollü biçimde yavaşlayarak duruyor. Bu işlem birkaç saniye sürecektir. Emniyet kemerinizi bağlı tutun ve yerinizde kalın. Teknik ekibimiz tüm durumu izlemektedir.',
+    sensors:null,
+    action:'EMNİYET KEMERİNİZİ BAĞLI TUTUN — YERİNİZDEN KALKMAYINIZ',
+    dur:15000,
+  },
+
+  // ── Sarsıntı ─────────────────────────────────────────────────────────────────
+  sarsinti: {
+    border:'#d4ac0d', iconBg:'rgba(212,172,13,0.12)',
+    icon:'〜', badge:'İMU — TİTREŞİM ALGILANDI',
+    title:'Geçici Titreşim Algılandı',
+    msg:'Güzergah üzerinde kısa süreli bir titreşim algılandı. Manyetik kaldırma sistemi otomatik olarak dengeleme yapıyor. Bu durum güvenliğinizi etkilememektedir. Rahat bir pozisyonda oturmaya devam edin.',
+    sensors:[
+      {label:'Titreşim', val:'Algılandı', warn:true},
+      {label:'Levit.',   val:'Dengeliyor', warn:false},
+    ],
+    action:'EMNİYET KEMERİNİZİN KILIDI KAPALI OLDUĞUNDAN EMİN OLUN',
+    dur:9000,
+  },
+
+  // ── Tahliye ──────────────────────────────────────────────────────────────────
+  tahliye: {
+    border:'#9b59b6', iconBg:'rgba(155,89,182,0.15)',
+    icon:'🚨', badge:'ACİL TAHLİYE — MÜRETTEBAT YÖNLENDİRİYOR',
+    title:'Tahliye Başlıyor — Sakin Kalın',
+    msg:'Kabin mürettebatı tahliye prosedürü başlatmaktadır. Lütfen panik yapmayın; sırayla, sessizce ve mürettebatın yönlendirdiği acil çıkışa doğru ilerleyiniz. Değerli eşyalarınızı bırakın — güvenliğiniz her şeyin önündedir.',
+    sensors:null,
+    action:'YAVAŞÇA KALKARAK MÜRETTEBATİN GÖSTERDİĞİ ÇIKIŞA İLERLEYİN',
+    dur:20000,
+  },
+};
+
+/* ── Renk → rgba dönüştürücü ── */
+function hexRgba(hex,a){
+  const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+
+const CIRC=131.9; // 2π × r21
+let alertTimer=null, cdFrame=null;
+
+function showAlert(key){
+  const sc=SCENARIOS[key];
+  const card=document.getElementById('alert-card');
+
+  /* CSS değişkenleriyle tema */
+  card.style.setProperty('--ac',     sc.border);
+  card.style.setProperty('--ac-glow',hexRgba(sc.border,0.22));
+  card.style.setProperty('--ac-icon-bg', sc.iconBg);
+
+  /* İçerik */
+  document.getElementById('alert-icon').textContent  = sc.icon;
+  document.getElementById('alert-badge').textContent = sc.badge||'AKGYS — SİSTEM BİLDİRİMİ';
+  document.getElementById('alert-title').textContent = sc.title;
+  document.getElementById('alert-msg').textContent   = sc.msg;
+
+  /* Sensör çipleri */
+  const sensWrap=document.getElementById('alert-sensors');
+  sensWrap.innerHTML='';
+  if(sc.sensors && sc.sensors.length){
+    sc.sensors.forEach(s=>{
+      const ch=document.createElement('div');
+      ch.className='alert-sensor-chip'+(s.warn?' warn':'');
+      ch.textContent=s.label+': '+s.val;
+      sensWrap.appendChild(ch);
+    });
+    sensWrap.style.display='flex';
+  } else {
+    sensWrap.style.display='none';
+  }
+
+  /* Aksiyon */
+  const actEl=document.getElementById('alert-action');
+  if(sc.action){
+    actEl.textContent='⚡  '+sc.action;
+    actEl.style.display='block';
+  } else { actEl.style.display='none'; }
+
+  /* Göster */
+  card.classList.remove('show');
+  void card.offsetWidth; // reflow — animasyonu sıfırla
+  card.classList.add('show');
+
+  /* Geri sayım */
+  startCountdown(sc.dur||10000);
+}
+
+function startCountdown(dur){
+  const arc  = document.getElementById('ac-cdown-arc');
+  const num  = document.getElementById('ac-cdown-num');
+  const fill = document.getElementById('ac-prog-fill');
+  const card = document.getElementById('alert-card');
+  const start= Date.now();
+
+  clearTimeout(alertTimer);
+  cancelAnimationFrame(cdFrame);
+
+  function tick(){
+    const frac=Math.max(0,1-(Date.now()-start)/dur);
+    arc.style.strokeDashoffset  = (CIRC*(1-frac)).toFixed(1);
+    fill.style.width             = (frac*100)+'%';
+    num.textContent              = Math.ceil(frac*dur/1000);
+    if(frac>0){ cdFrame=requestAnimationFrame(tick); }
+    else       { card.classList.remove('show'); }
+  }
+  cdFrame=requestAnimationFrame(tick);
+  alertTimer=setTimeout(()=>card.classList.remove('show'),dur+100);
+}
+
+function dismissAlert(){
+  document.getElementById('alert-card').classList.remove('show');
+  clearTimeout(alertTimer);
+  cancelAnimationFrame(cdFrame);
+}
+
+function simulate(key){
+  if(key==='normal'){
+    dismissAlert();
+    const p=document.getElementById('status-pill');
+    p.textContent='NORMAL SEYRÜSEFER';
+    p.style.background='#122a1a';p.style.color='#7fffa0';p.style.borderColor='#2ecc71';
+    return;
+  }
+  showAlert(key);
+}
+
+/* STATUS renkleri */
+const STATUS={
+  'NORMAL':  {label:'NORMAL SEYRÜSEFER',bg:'#122a1a',color:'#7fffa0',border:'#2ecc71'},
+  'UYARI':   {label:'UYARI – DİKKAT',   bg:'#2a1e00',color:'#ffd97d',border:'#f39c12'},
+  'KRITIK':  {label:'KRİTİK DURUM',     bg:'#2a0e00',color:'#ffaa66',border:'#e67e22'},
+  'ACIL':    {label:'ACİL DURUM',        bg:'#2a0000',color:'#ff6b6b',border:'#e74c3c'},
+  'KURTARMA':{label:'KURTARMA MODU',    bg:'#200e2a',color:'#c77dff',border:'#9b59b6'},
+};
+let lastDurum='NORMAL';
+
+const socket=io();
+socket.on('update',d=>{
+  targetPos=Math.max(0,Math.min(1,d.konum||0));
+  const spd=d.hiz||0;
+  document.getElementById('hiz-val').textContent=spd;
+  const rem=(1-targetPos)*TOTAL_KM;
+  document.getElementById('eta-val').textContent=spd>10?Math.round((rem/spd)*60):(d.kalan_dk||'—');
+  const n=STATIONS.length-1;
+  const seg=Math.min(Math.floor(targetPos*n),n-1);
+  document.getElementById('next-st').textContent=STATIONS[Math.min(seg+1,n)].name;
+  const durum=d.durum||'NORMAL';
+  const cfg=STATUS[durum]||STATUS['NORMAL'];
+  const pill=document.getElementById('status-pill');
+  pill.textContent=cfg.label;pill.style.background=cfg.bg;pill.style.color=cfg.color;pill.style.borderColor=cfg.border;
+  lastDurum=durum;
+});
+
+/* ── EKRAN GÖRÜNTÜSÜ ── */
+let ssYCount=0;
+async function takeScreenshotY(){
+  const btn=document.getElementById('ss-btn-yolcu');
+  const icon=document.getElementById('ss-y-icon');
+  const txt=document.getElementById('ss-y-txt');
+  btn.classList.remove('saved','error');btn.classList.add('saving');
+  btn.disabled=true;icon.textContent='⏳';txt.textContent='Alınıyor…';
+  try{
+    const r=await fetch('/screenshot',{method:'POST'});
+    const d=await r.json();
+    if(d.ok){
+      ssYCount++;
+      document.getElementById('ss-y-count').textContent=ssYCount;
+      btn.classList.remove('saving');btn.classList.add('saved');
+      icon.textContent='✓';txt.textContent='Kaydedildi';
+      setTimeout(()=>{btn.classList.remove('saved');icon.textContent='📸';txt.textContent='Kaydet';btn.disabled=false;},2000);
+    } else { throw new Error(d.error||'hata'); }
+  }catch(e){
+    btn.classList.remove('saving');btn.classList.add('error');
+    icon.textContent='✗';txt.textContent='Hata';
+    setTimeout(()=>{btn.classList.remove('error');icon.textContent='📸';txt.textContent='Kaydet';btn.disabled=false;},2000);
+  }
+}
+
+/* Operatör simülasyon butonlarından gelen alert tetikleyici */
+socket.on('show_alert',d=>{
+  const key=d.scenario||'normal';
+  if(key==='normal') dismissAlert();
+  else showAlert(key);
+});
+</script>
+</body>
+</html>
