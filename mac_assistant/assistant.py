@@ -47,6 +47,15 @@ SYSTEM_PROMPT = (
     "normal mod, durum sorgulama. Sana verilen güncel sistem durumunu kullanarak yanıt ver."
 )
 
+# Whisper'ı alan sözcüklerine yönlendiren ipucu — gürültülü ortamda ve teknik
+# terimlerde ("levitasyon", "BMS", "fren") doğru transkripsiyon olasılığını artırır.
+DOMAIN_PROMPT = (
+    "AKGYS hyperloop güvenlik komutları: spectraloop, acil durdur, fren yap, "
+    "levitasyon sapması, navigasyon arızası, BMS ısınma, batarya, tahliye, "
+    "oksijen maskesi, basınç düşüşü, sarsıntı, çoklu arıza, normale al, "
+    "risk durumu, hız, konum."
+)
+
 
 # ── KONUŞMA-METİN (STT) ───────────────────────────────────────────
 class STT:
@@ -70,9 +79,20 @@ class STT:
     def transcribe(self, audio: np.ndarray) -> str:
         try:
             if self.backend == "faster":
-                segments, _ = self._model.transcribe(audio, language="tr", beam_size=1)
+                # vad_filter: dahili Silero VAD ile gürültü/sessizlik ayıklanır.
+                segments, _ = self._model.transcribe(
+                    audio, language="tr", beam_size=5, temperature=0.0,
+                    initial_prompt=DOMAIN_PROMPT,
+                    condition_on_previous_text=False,
+                    vad_filter=True,
+                    vad_parameters=dict(min_silence_duration_ms=300),
+                )
                 return " ".join(s.text for s in segments).strip()
-            result = self._model.transcribe(audio, language="tr", fp16=False)
+            result = self._model.transcribe(
+                audio, language="tr", fp16=False, temperature=0.0,
+                initial_prompt=DOMAIN_PROMPT,
+                condition_on_previous_text=False,
+            )
             return result.get("text", "").strip()
         except Exception:
             log.exception("Transkripsiyon hatası")
@@ -326,19 +346,32 @@ class Assistant:
         log.info("Onay yanıtı: %r", reply)
         return intent.is_affirmative(reply)
 
+    def _execute(self, it):
+        if it.scenario == "acildurak":
+            self.pi.emergency()
+        else:
+            self.pi.trigger(it.scenario)
+        self.tts.say(it.response)
+
     def _handle(self, text: str):
         it = intent.match_intent(text)
 
         if it.kind == "scenario":
+            if it.confidence == "medium":
+                # Emin değiliz (yanlış/eksik duyulmuş olabilir) → önce teyit et.
+                log.info("Bulanık eşleşme: %s (skor=%.2f)", it.label, it.score)
+                if self._confirm(f"{it.label} komutunu mu demek istediniz?"):
+                    self._execute(it)      # açık teyit; kritik olsa da tek onay yeter
+                else:
+                    self.tts.say("Anlaşılmadı, lütfen komutu tekrar söyleyin.")
+                return
+
+            # Yüksek güven (tam eşleşme)
             if it.critical:
                 if not self._confirm(f"{it.response} Onaylıyor musunuz?"):
                     self.tts.say("İşlem iptal edildi.")
                     return
-            if it.scenario == "acildurak":
-                self.pi.emergency()
-            else:
-                self.pi.trigger(it.scenario)
-            self.tts.say(it.response)
+            self._execute(it)
 
         elif it.kind == "query":
             self.pi.emit_face("thinking", text)

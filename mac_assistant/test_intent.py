@@ -80,6 +80,41 @@ def test_strip_wake_words():
     assert strip_wake_words("spectraloop") == ""
 
 
+# ── Bulanık (fuzzy) eşleşme — yanlış/eksik duyulan sözcükler ──────
+def test_fren_maps_to_emergency():
+    it = match_intent("fren yap")
+    assert it.kind == "scenario"
+    assert it.scenario == "acildurak"
+
+
+def test_misheard_levitasyon():
+    # Listede olmayan bir yanlış duyum → bulanık eşleşme, teyit istenir
+    it = match_intent("levitesyon baslat")
+    assert it.scenario == "levitasyon"
+    assert it.confidence == "medium"
+
+
+def test_misheard_navigasyon():
+    assert match_intent("navigasion arizasi").scenario == "navigasyon"
+
+
+def test_misheard_sarsinti():
+    assert match_intent("titresim var").scenario == "sarsinti"
+
+
+def test_query_not_confused_with_durdur():
+    # 'durum' bulanık şekilde 'durdur'a kaymamalı
+    assert match_intent("risk durumu ne").kind == "query"
+
+
+def test_unrelated_is_chat():
+    assert match_intent("bana yemek tarifi ver").kind == "chat"
+
+
+def test_exact_is_high_confidence():
+    assert match_intent("acil durdur").confidence == "high"
+
+
 # ── Onay mantığı ──────────────────────────────────────────────────
 def test_affirmative():
     assert is_affirmative("evet onaylıyorum")
